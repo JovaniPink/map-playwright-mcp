@@ -205,10 +205,11 @@ async def call_tool_with_retry(
                 break
             sleep_seconds = backoff_seconds * (2 ** (attempt_index - 1))
             LOGGER.warning(
-                "Tool %s failed (attempt %d/%d): %s — retrying in %.2fs",
+                "Tool %s failed (attempt %d/%d): [%s] %s — retrying in %.2fs",
                 tool_name,
                 attempt_index,
                 retries,
+                type(exc).__name__,
                 exc,
                 sleep_seconds,
             )
@@ -276,8 +277,9 @@ class NetworkCaptureClient:
             tools = await client_session.list_tools()
             return any(
                 tool_descriptor.name == tool_name for tool_descriptor in tools.tools
-            )
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning("Error checking tool availability for '%s': %s", tool_name, exc)
+            return False
             return False
 
     async def capture_network_requests(
@@ -474,11 +476,14 @@ async def run_async(argv: List[str]) -> int:
                 status_min=cli_args.status_min,
                 status_max=cli_args.status_max,
             )
+            # Use parser defaults for status_min and status_max to avoid magic numbers
+            status_min_default = parser.get_default("status_min")
+            status_max_default = parser.get_default("status_max")
             if (
                 cli_args.filter_url
                 or cli_args.filter_method
-                or cli_args.status_min != 0
-                or cli_args.status_max != 999
+                or cli_args.status_min != status_min_default
+                or cli_args.status_max != status_max_default
             ):
                 LOGGER.info(
                     "Filtered %d → %d requests",
@@ -487,8 +492,6 @@ async def run_async(argv: List[str]) -> int:
                 )
             else:
                 filtered_requests = captured_requests
-
-            saved_output_path = await capture_client.save_jsonl(
                 filtered_requests, cli_args.out
             )
             # Print the final path for shell pipelines
